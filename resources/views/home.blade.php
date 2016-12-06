@@ -134,7 +134,7 @@
                 traceSip: true,
                 register: false,
                 uri: "{{ $user->sipuri }}",
-                wsServers: ["ws://127.0.0.1:8088/ws"],
+                wsServers: ["ws://192.168.11.102:8088/ws"],
                 authorizationUser: "{{ $user->sipusername }}",
                 password: "{{ $user->sippassword }}",
                 stunServers: []
