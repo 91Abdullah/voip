@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Statis;
 use Illuminate\Http\Request;
 
 use Illuminate\Support\Facades\Auth;
 use phpari;
+use sounds;
 use applications;
+use channels;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class HomeController extends Controller

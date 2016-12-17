@@ -10,15 +10,14 @@
         <div class="col-md-8 col-md-offset-2">
             <div class="panel panel-default">
                 <div class="panel-heading">
-                    <i class="fa fa-phone"></i> Phone <button id="start" class="btn btn-sm btn-success"><i class="fa fa-check"></i> Start</button> <button id="register" class="btn btn-sm btn-primary">Register</button>
+                    <i class="fa fa-phone"></i> Phone <button id="start" class="btn btn-sm btn-success"><i class="fa fa-check"></i> Start</button>
                     <p class="pull-right">
                         <span id="status" class="label label-danger">Disconnected</span>
                     </p>
                 </div>
 
                 <div class="panel-body">
-                    <form action="" id="phone" class="form-horizontal">
-                        {!! csrf_field() !!}
+                    <div id="phone" class="form-horizontal">
                         <div class="form-group">
                             <audio src="" id="remoteAudio"></audio>
                         </div>
@@ -39,7 +38,7 @@
                                 </button>
                             </div>
                         </div>
-                    </form>
+                    </div>
                 </div>
             </div>
             <div id="outgoingAlert" class="panel panel-primary">
@@ -48,7 +47,15 @@
                         Outgoing Call to <span class="label label-info" id="outgoingNumber">03350362957</span>
                     </h3>
                     <p id="outgoingStatus" class="alert alert-success">
-                        Connected
+                        Connected <label id="Otimer"></label>
+                    </p>
+                    <p class="input-group">
+                        <input id="outDTMF" type="text" class="form-control">
+                        <span class="input-group-btn">
+                            <button id="sendOutDTMF" type="button" class="btn btn-warning">
+                                Send DTMF
+                            </button>
+                        </span>
                     </p>
                     <p id="outgoingRequest">
                     <button id="outgoingAccept" class="btn btn-primary">
@@ -77,7 +84,15 @@
                         Incoming Call from <span class="label label-info" id="incomingNumber">03350362957</span>
                     </h3>
                     <p id="incomingStatus" class="alert alert-success">
-                        Connected
+                        Connected <label id="Itimer"></label>
+                    </p>
+                    <p class="input-group">
+                        <input id="inputDTMF" type="text" class="form-control">
+                        <span class="input-group-btn">
+                            <button id="sendInDTMF" type="button" class="btn btn-warning">
+                                Send DTMF
+                            </button>
+                        </span>
                     </p>
                     <p id="incomingRequest">
                         <button id="incomingAccept" class="btn btn-primary">
@@ -107,19 +122,10 @@
 
 @section('scripts')
     <script src="{{ URL::to('js/sip-0.7.5.js') }}"></script>
+    <script src="{{ URL::to('js/timer.jquery.js') }}"></script>
     <script>
 
-        function getUserMediaSuccess (stream) {
-            console.log('getUserMedia succeeded', stream)
-            mediaStream = stream;
-        }
-
-        function getUserMediaFailure (e) {
-            console.error('getUserMedia failed:', e);
-        }
-
         $(document).ready(function() {
-
             $("#incomingAlert").hide();
             $("#incomingStatus").hide();
             $("#incomingRequest").hide();
@@ -130,7 +136,7 @@
             $("#outgoingRequestAccepted").hide();
 
             var config = {
-                userAgentString: 'Gorilla VoIP Client',
+                userAgentString: 'Gorilla VoIP User Agent',
                 traceSip: true,
                 register: false,
                 uri: "{{ $user->sipuri }}",
@@ -142,15 +148,23 @@
 
             var ua;
             var sessionUIs = {};
+            var currentSession;
 
             $("#start").on("click", function (e) {
                 e.preventDefault();
 
-                ua = new SIP.UA(config);
+                if (!ua)
+                    ua = new SIP.UA(config);
+
+                if (ua.isRegistered()) {
+                    ua.unregister();
+                } else {
+                    ua.register();
+                }
 
                 ua.on('connected', function () {
                     $("#register").html("Connected (Unregistered)");
-                    $("#start").html("<i class='fa fa-times'></i> Stop");
+                    $("#start").html("<i class='fa fa-times'></i> Stop").removeClass("btn-success").addClass("btn-danger");
                 });
 
                 ua.on('registered', function () {
@@ -158,9 +172,13 @@
                     $("#status").html("Connected (Registered)").removeClass("label-danger").addClass("label-success");
                 });
 
+                ua.on("disconnected", function () {
+                    $("#start").html("<i class='fa fa-check'></i> Start").removeClass("btn-danger").addClass("btn-success");
+                });
+
                 ua.on('unregistered', function () {
-                    $("#register").html("Register");
                     $("#status").html("Connected (Unregistered)").removeClass("label-success").addClass("label-danger");
+                    $("#start").html("<i class='fa fa-check'></i> Start").removeClass("btn-danger").addClass("btn-success");
                 });
 
                 ua.on("invite", function (session) {
@@ -170,20 +188,23 @@
                     $("#incomingRequest").show();
                     $("#incomingAccept").on("click", function (e) {
                         //e.preventDefault();
-                    var options = {
-                        media: {
-                            constraints: {
-                                audio: true,
-                                video: false
-                            },
-                            render: {
-                                remote: document.getElementById('remoteAudio')
+                        var options = {
+                            media: {
+                                constraints: {
+                                    audio: true,
+                                    video: false
+                                },
+                                render: {
+                                    remote: document.getElementById('remoteAudio')
+                                }
                             }
-                        }
-                    };
+                        };
                         session.accept(options);
+                        currentSession = session;
                     });
+
                     session.on("accepted", function (data) {
+                        $("#Itimer").timer();
                         $("#incomingRequest").hide();
                         $("#incomingStatus").show();
                         $("#incomingRequestAccepted").show();
@@ -197,6 +218,7 @@
                     });
                     session.on("bye", function (data) {
                         //$("#incomingAlert").hide();
+                        $("#Itimer").timer('remove');
                     });
                     session.on("terminated", function(message, cause) {
                         $("#incomingAlert").hide();
@@ -206,11 +228,15 @@
                     });
                     $("#incomingRequestHold").on("click", function (e) {
                         e.preventDefault();
-                        session.isOnHold().local ? session.unhold() : session.hold();
+                        session.isOnHold() ? session.unhold() : session.hold();
                     });
                     $("#incomingRequestMute").on("click", function (e) {
                         e.preventDefault();
                         session.toggleMuteAudio();
+                    });
+                    $("#sendInDTMF").on("click", function (e) {
+                        session.dtmf(parseInt($("#inputDTMF").val()));
+                        console.log("DtMF event fired");
                     });
                     //console.log(session);
                 });
@@ -218,16 +244,12 @@
 
             });
 
-            $("#register").on("click", function (e) {
+/*            $("#register").on("click", function (e) {
                 e.preventDefault();
-                if (!ua) return;
 
-                if (ua.isRegistered()) {
-                    ua.unregister();
-                } else {
-                    ua.register();
-                }
-            });
+            });*/
+
+
 
             $("#dial").on("click", function (e) {
                 e.preventDefault();
@@ -245,6 +267,7 @@
                     }
                 };
                 session = ua.invite(number, options);
+                currentSession = session;
 
                 session.on("progress", function (data) {
                     $("#outgoingAlert").show();
@@ -257,6 +280,9 @@
                     $("#outgoingRequest").hide();
                     $("#outgoingStatus").show();
                     $("#outgoingRequestAccepted").show();
+                    $("#Otimer").timer({
+                        format: "%H:%M:%S"
+                    });
                 });
                 $("#outgoingRequestHangup").on("click", function (e) {
                     e.preventDefault();
@@ -267,6 +293,7 @@
                 });
                 session.on("bye", function (data) {
                     //$("#outgoingAlert").hide();
+                    $("#Otimer").timer('remove');
                 });
                 session.on("terminated", function(message, cause) {
                     $("#outgoingAlert").hide();
@@ -277,13 +304,20 @@
 
                 $("#outgoingRequestHold").on("click", function (e) {
                     e.preventDefault();
-                    session.isOnHold().local ? session.unhold() : session.hold();
+                    if (session.isOnHold())
+                        session.unhold();
+                    else session.hold();
                 });
                 $("#outgoingRequestMute").on("click", function (e) {
                     e.preventDefault();
                     session.toggleMuteAudio();
                 });
+                $("#sendOutDTMF").on("click", function (e) {
+                    session.dtmf(parseInt($("#outDTMF").val()));
+                    console.log("event fired");
+                });
             });
+
         });
     </script>
 @endsection
